@@ -25,10 +25,10 @@ async def _do_refresh() -> None:
         log.warning("discovery returned no free models; keeping previous list")
         return
 
-    ranked = rank_models(models)
+    ranked = await rank_models(models, _client)
     if not ranked:
         log.warning("ranker returned empty list; using discovery order")
-        ranked = [m["id"] for m in models]
+        ranked = [{"id": m["id"], "context_length": m.get("context_length") or 0} for m in models]
 
     async with state.lock:
         state.ranked_models = ranked

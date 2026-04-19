@@ -26,8 +26,10 @@ async def fetch_free_models(client: httpx.AsyncClient) -> list[dict]:
         if pricing.get("prompt") == "0" and pricing.get("completion") == "0":
             free.append({
                 "id": m["id"],
+                "name": m.get("name", m["id"]),
                 "context_length": m.get("context_length"),
                 "supported_parameters": m.get("supported_parameters", []),
+                "description": (m.get("description") or "")[:200],
             })
 
     free.sort(key=lambda m: m["id"])
