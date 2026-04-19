@@ -101,7 +101,8 @@ async def rank_models(
         if m["id"] not in seen:
             result.append({"id": m["id"], "context_length": m.get("context_length") or 0})
 
-    log.info("ranker: %d usable / %d total, top=%s", len(result), len(models), result[0]["id"] if result else "—")
+    ranking_str = ", ".join(f"{i+1}.{m['id']}" for i, m in enumerate(result))
+    log.info("ranker: %d usable / %d total | %s", len(result), len(models), ranking_str)
     return result
 
 
