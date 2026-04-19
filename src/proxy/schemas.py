@@ -6,6 +6,7 @@ class ModelObject(BaseModel):
     object: str = "model"
     created: int = 0
     owned_by: str = "openrouter"
+    context_length: int | None = None
 
 
 class ModelList(BaseModel):

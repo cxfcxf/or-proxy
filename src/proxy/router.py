@@ -37,7 +37,7 @@ async def forward_chat_completion(request: Request, client: httpx.AsyncClient):
     is_stream = bool(body.get("stream"))
 
     async with state.lock:
-        models = list(state.ranked_models)
+        models = [m["id"] for m in state.ranked_models]
 
     if not models:
         return _error_502("no free models available yet; wait for first refresh")

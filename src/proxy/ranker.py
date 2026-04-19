@@ -48,22 +48,22 @@ def _is_usable(model: dict) -> bool:
     return True
 
 
-def rank_models(models: list[dict]) -> list[str]:
-    """Return model ids ranked best-first for agentic coding/chat."""
+def rank_models(models: list[dict]) -> list[dict]:
+    """Return models ranked best-first, each as {"id": ..., "context_length": ...}."""
     usable = [m for m in models if _is_usable(m)]
 
     scored = [
-        (_family_score(m["id"]), m.get("context_length") or 0, m["id"])
+        (_family_score(m["id"]), m.get("context_length") or 0, m["id"], m.get("context_length") or 0)
         for m in usable
     ]
     # Sort: family score desc, context desc, id asc
     scored.sort(key=lambda t: (-t[0], -t[1], t[2]))
 
-    ranked = [t[2] for t in scored]
+    ranked = [{"id": t[2], "context_length": t[3]} for t in scored]
     log.info(
         "ranker: %d usable / %d total, top=%s",
         len(ranked),
         len(models),
-        ranked[0] if ranked else "—",
+        ranked[0]["id"] if ranked else "—",
     )
     return ranked

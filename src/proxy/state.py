@@ -5,7 +5,7 @@ from datetime import datetime
 
 @dataclass
 class ProxyState:
-    ranked_models: list[str] = field(default_factory=list)
+    ranked_models: list[dict] = field(default_factory=list)  # [{"id": ..., "context_length": ...}]
     last_refresh: datetime | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 

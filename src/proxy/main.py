@@ -34,7 +34,7 @@ async def _do_refresh() -> None:
         state.ranked_models = ranked
         state.last_refresh = datetime.utcnow()
 
-    log.info("state updated: %d models, top=%s", len(ranked), ranked[0] if ranked else "—")
+    log.info("state updated: %d models, top=%s", len(ranked), ranked[0]["id"] if ranked else "—")
 
 
 async def _refresh_loop() -> None:
@@ -66,7 +66,18 @@ async def chat_completions(request: Request):
 
 @app.get("/v1/models")
 async def list_models():
-    return ModelList(data=[ModelObject(id="auto", owned_by="proxy")])
+    async with state.lock:
+        top = state.ranked_models[0] if state.ranked_models else None
+    ctx = top["context_length"] if top else None
+    return ModelList(data=[ModelObject(id="auto", owned_by="proxy", context_length=ctx)])
+
+
+@app.get("/v1/models/{model_id:path}")
+async def get_model(model_id: str):
+    async with state.lock:
+        top = state.ranked_models[0] if state.ranked_models else None
+    ctx = top["context_length"] if top else None
+    return ModelObject(id=model_id, owned_by="proxy", context_length=ctx)
 
 
 @app.get("/health")
@@ -76,5 +87,5 @@ async def health():
             "status": "ok",
             "model_count": len(state.ranked_models),
             "last_refresh": state.last_refresh.isoformat() if state.last_refresh else None,
-            "ranked_models": list(state.ranked_models),
+            "ranked_models": [m["id"] for m in state.ranked_models],
         }

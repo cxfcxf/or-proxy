@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 86400
     host: str = "127.0.0.1"
     port: int = 8787
-    http_referer: str = "http://localhost"
-    x_title: str = "hermes-free-proxy"
+    http_referer: str = "https://github.com/cxfcxf/or-proxy"
+    x_title: str = "or-proxy"
 
 
 settings = Settings()
