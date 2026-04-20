@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from typing import AsyncIterator
 
 import httpx
@@ -8,6 +9,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from .config import settings
 from .schemas import ErrorDetail, ErrorResponse
 from .state import state
+
+STICKY_TTL = timedelta(hours=1)
 
 log = logging.getLogger(__name__)
 
@@ -32,21 +35,45 @@ def _error_502(msg: str) -> JSONResponse:
     )
 
 
+def _sticky_order(models: list[str], sticky: str | None) -> list[str]:
+    """Reorder models to start from sticky, falling back to ranked order."""
+    if sticky and sticky in models:
+        idx = models.index(sticky)
+        return models[idx:] + models[:idx]
+    return models
+
+
+async def _set_sticky(model_id: str) -> None:
+    async with state.lock:
+        if state.sticky_model != model_id:
+            log.info("sticky model -> %s", model_id)
+            state.sticky_model = model_id
+            state.sticky_since = datetime.utcnow()
+
+
 async def forward_chat_completion(request: Request, client: httpx.AsyncClient):
     body = await request.json()
     is_stream = bool(body.get("stream"))
 
     async with state.lock:
         models = [m["id"] for m in state.ranked_models]
+        sticky = state.sticky_model
+        sticky_since = state.sticky_since
+        if sticky and sticky_since and datetime.utcnow() - sticky_since > STICKY_TTL:
+            log.info("sticky TTL expired, resetting to #1")
+            state.sticky_model = None
+            state.sticky_since = None
+            sticky = None
 
     if not models:
         return _error_502("no free models available yet; wait for first refresh")
 
+    ordered = _sticky_order(models, sticky)
     url = f"{settings.openrouter_base_url}/chat/completions"
 
     if is_stream:
-        return await _try_stream(client, url, body, models)
-    return await _try_non_stream(client, url, body, models)
+        return await _try_stream(client, url, body, ordered)
+    return await _try_non_stream(client, url, body, ordered)
 
 
 async def _try_non_stream(
@@ -64,6 +91,7 @@ async def _try_non_stream(
             log.warning("model %s returned %d, trying next", model_id, resp.status_code)
             continue
 
+        await _set_sticky(model_id)
         return JSONResponse(status_code=resp.status_code, content=resp.json())
 
     return _error_502("all free models failed")
@@ -76,6 +104,7 @@ async def _try_stream(
         try:
             result = await _attempt_stream(client, url, {**body, "model": model_id}, model_id)
             if result is not None:
+                await _set_sticky(model_id)
                 return result
         except httpx.RequestError as e:
             log.warning("model %s stream error: %s", model_id, e)

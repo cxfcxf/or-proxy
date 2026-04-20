@@ -33,6 +33,8 @@ async def _do_refresh() -> None:
     async with state.lock:
         state.ranked_models = ranked
         state.last_refresh = datetime.utcnow()
+        state.sticky_model = None
+        state.sticky_since = None
 
     log.info("state updated: %d models, top=%s", len(ranked), ranked[0]["id"] if ranked else "—")
 
@@ -87,5 +89,6 @@ async def health():
             "status": "ok",
             "model_count": len(state.ranked_models),
             "last_refresh": state.last_refresh.isoformat() if state.last_refresh else None,
+            "sticky_model": state.sticky_model,
             "ranked_models": [m["id"] for m in state.ranked_models],
         }

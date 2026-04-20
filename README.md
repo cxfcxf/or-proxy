@@ -1,12 +1,12 @@
 # OpenRouter Free-Model Reverse Proxy
 
-Local reverse proxy that discovers OpenRouter's free-tier models, ranks them with a deterministic scorer tuned for agentic coding/chat, and exposes a single OpenAI-compatible endpoint with automatic fallback.
+Local reverse proxy that discovers OpenRouter's free-tier models, ranks them using an LLM, and exposes a single OpenAI-compatible endpoint with automatic fallback and sticky routing.
 
 ## Setup
 
 ```bash
-cp .env.example .env
-# fill in OPENROUTER_API_KEY
+# Add to ~/.sieg.env or .env
+OPENROUTER_API_KEY=sk-or-...
 ```
 
 ## Run
@@ -15,9 +15,20 @@ cp .env.example .env
 uv run uvicorn proxy.main:app --host 127.0.0.1 --port 8787
 ```
 
+Or via Docker:
+
+```bash
+docker run --name=or-proxy --user=app --env-file=~/.sieg.env \
+  -p 127.0.0.1:8787:8787 --restart=unless-stopped \
+  or-proxy:latest uvicorn proxy.main:app --host 0.0.0.0 --port 8787
+```
+
 ## Verify
 
 ```bash
+# health + current sticky model
+curl http://127.0.0.1:8787/health
+
 # ranked model list
 curl http://127.0.0.1:8787/v1/models
 
@@ -30,36 +41,44 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 curl -s http://127.0.0.1:8787/v1/chat/completions \
   -H 'content-type: application/json' \
   -d '{"model":"auto","messages":[{"role":"user","content":"say hi"}],"stream":true}'
-
-# health
-curl http://127.0.0.1:8787/health
 ```
 
-## Config (`.env`)
+## Config (`.env` / `~/.sieg.env`)
 
 | Variable | Default | Description |
 |---|---|---|
 | `OPENROUTER_API_KEY` | required | OpenRouter bearer token |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base |
+| `RANKER_MODEL` | `anthropic/claude-sonnet-4.6` | Model used to rank free models |
 | `POLL_INTERVAL_SECONDS` | `86400` | Free model refresh interval (1 day) |
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `8787` | Bind port |
-| `HTTP_REFERER` | `http://localhost` | OpenRouter `HTTP-Referer` header |
-| `X_TITLE` | `hermes-free-proxy` | OpenRouter `X-Title` header |
+| `HTTP_REFERER` | `https://github.com/cxfcxf/or-proxy` | OpenRouter `HTTP-Referer` header |
+| `X_TITLE` | `or-proxy` | OpenRouter `X-Title` header |
 
 ## Ranking
 
-The ranker in `ranker.py` is a pure deterministic scorer:
+On startup and every `POLL_INTERVAL_SECONDS`, the proxy:
 
-1. **Hard filters**: drops anything without `tools` in `supported_parameters`; drops `openrouter/free` (meta-router, recursion risk).
-2. **Family tier score**: known-good families get explicit scores (Qwen3-Coder > Qwen3-Next > GPT-OSS 120B > GLM-4.5 > Nemotron Super > MiniMax M2 > ...).
-3. **Tiebreaker**: longer context wins, then alphabetical.
+1. Fetches all free models from OpenRouter
+2. Filters out non-tool-capable and non-chat models (embeddings, TTS, etc.)
+3. Asks `RANKER_MODEL` to rank them for agentic/coding use (tool calling, reasoning, large context)
+4. Falls back to context-length sort if the LLM call fails
 
-When new free models appear, they default to a mid-tier score until the list in `ranker.py` is updated. No external calls, no LLM, no extra dependency.
+The full ranked order is logged on each refresh.
+
+## Routing
+
+- **Sticky routing**: once a model succeeds it becomes sticky — subsequent requests start from that model, skipping rate-limited ones above it
+- **1-hour TTL**: sticky resets to #1 every hour so rate limits have time to clear
+- **Re-rank reset**: sticky also clears whenever the model list is refreshed
+- **Fallback chain**: on 429/5xx, walks down the ranked list until one succeeds
+- **All fail**: returns `502` with an OpenAI-shaped error body
 
 ## Failure behaviour
 
 - Discovery fails → keep previous model list
-- Model returns 429/5xx or network error → walk to next ranked model
-- All models exhausted → `502` with OpenAI-shaped error (Hermes falls back to glm-5.1)
-- Streaming: retry is possible only before the first byte reaches the client
+- LLM ranker fails → fall back to context-length sort
+- Model returns 429/5xx or network error → try next ranked model
+- All models exhausted → `502`
+- Streaming: retry only possible before first byte reaches the client
