@@ -66,19 +66,31 @@ async def chat_completions(request: Request):
     return await forward_chat_completion(request, _client)
 
 
+def _active_model_info() -> dict | None:
+    """Return sticky model info if set, else top ranked model."""
+    sticky = state.sticky_model
+    models = state.ranked_models
+    if sticky:
+        info = next((m for m in models if m["id"] == sticky), None)
+        if info:
+            return info
+    return models[0] if models else None
+
+
 @app.get("/v1/models")
 async def list_models():
     async with state.lock:
-        top = state.ranked_models[0] if state.ranked_models else None
-    ctx = top["context_length"] if top else None
-    return ModelList(data=[ModelObject(id="auto", owned_by="proxy", context_length=ctx)])
+        info = _active_model_info()
+    ctx = info["context_length"] if info else None
+    display_id = info["id"] if info else "auto"
+    return ModelList(data=[ModelObject(id=display_id, owned_by="proxy", context_length=ctx)])
 
 
 @app.get("/v1/models/{model_id:path}")
 async def get_model(model_id: str):
     async with state.lock:
-        top = state.ranked_models[0] if state.ranked_models else None
-    ctx = top["context_length"] if top else None
+        info = _active_model_info()
+    ctx = info["context_length"] if info else None
     return ModelObject(id=model_id, owned_by="proxy", context_length=ctx)
 
 
