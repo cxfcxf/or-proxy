@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from .config import settings
 from .discovery import fetch_free_models
 from .ranker import rank_models
-from .router import forward_chat_completion
+from .router import forward_chat_completion, forward_embeddings
 from .schemas import ModelList, ModelObject
 from .state import state
 
@@ -64,6 +64,11 @@ app = FastAPI(title="openrouter-free-proxy", lifespan=lifespan)
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     return await forward_chat_completion(request, _client)
+
+
+@app.post("/v1/embeddings")
+async def embeddings(request: Request):
+    return await forward_embeddings(request, _client)
 
 
 def _active_model_info() -> dict | None:

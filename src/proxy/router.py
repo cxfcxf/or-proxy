@@ -16,6 +16,16 @@ log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
+
+async def forward_embeddings(request: Request, client: httpx.AsyncClient) -> JSONResponse:
+    body = await request.json()
+    url = f"{settings.openrouter_base_url}/embeddings"
+    try:
+        resp = await client.post(url, json=body, headers=_or_headers(), timeout=_NONSTREAM_TIMEOUT)
+    except httpx.RequestError as e:
+        return JSONResponse(status_code=502, content={"error": str(e)})
+    return JSONResponse(status_code=resp.status_code, content=resp.json())
+
 _NONSTREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 _STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 
