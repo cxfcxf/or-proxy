@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 
 from .config import settings
 from .discovery import fetch_free_models
-from .ranker import rank_models
+from .ranker import is_usable, rank_models
 from .router import forward_chat_completion, forward_embeddings
 from .schemas import ModelList, ModelObject
 from .state import state
@@ -25,10 +25,25 @@ async def _do_refresh() -> None:
         log.warning("discovery returned no free models; keeping previous list")
         return
 
+    preferred = settings.preferred_model
+    usable = [m for m in models if is_usable(m)]
+    pref_match = next((m for m in usable if m["id"] == preferred), None) if preferred else None
+
     ranked = await rank_models(models, _client)
     if not ranked:
         log.warning("ranker returned empty list; using discovery order")
         ranked = [{"id": m["id"], "context_length": m.get("context_length") or 0} for m in models]
+
+    if pref_match:
+        pref_entry = next((r for r in ranked if r["id"] == preferred), None)
+        if pref_entry is None:
+            pref_entry = {"id": pref_match["id"], "context_length": pref_match.get("context_length") or 0}
+        ranked = [pref_entry] + [r for r in ranked if r["id"] != preferred]
+        log.info("preferred model %s pinned as #1 (failover uses ranker order)", preferred)
+        ranking_str = ", ".join(f"{i+1}.{m['id']}" for i, m in enumerate(ranked))
+        log.info("preferred order: %d models | %s", len(ranked), ranking_str)
+    elif preferred:
+        log.info("preferred model %s not in free/usable list — using pure ranker order", preferred)
 
     async with state.lock:
         state.ranked_models = ranked

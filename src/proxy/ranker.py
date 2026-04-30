@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import UTC, datetime
 
 import httpx
 
@@ -15,7 +16,7 @@ _EXCLUDE_IDS: set[str] = {"openrouter/free"}
 _EXCLUDE_SUBSTRINGS: list[str] = ["embed", "lyria", "tts", "whisper"]
 
 
-def _is_usable(model: dict) -> bool:
+def is_usable(model: dict) -> bool:
     mid = model["id"]
     if mid in _EXCLUDE_IDS:
         return False
@@ -33,13 +34,22 @@ async def rank_models(
 ) -> list[dict]:
     """Ask an LLM to rank models for auxiliary/agentic use. Returns best-first list of {"id", "context_length"}."""
     ranker_model = ranker_model or settings.ranker_model
-    usable = [m for m in models if _is_usable(m)]
+    usable = [m for m in models if is_usable(m)]
 
     if not usable:
         return []
 
+    def _released(m: dict) -> str:
+        ts = m.get("created") or 0
+        if not ts:
+            return "unknown"
+        try:
+            return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d")
+        except (OSError, ValueError, OverflowError):
+            return "unknown"
+
     model_list = "\n".join(
-        f"- {m['id']} | ctx={m.get('context_length') or 0} | {m.get('name', '')} | {m.get('description', '')}"
+        f"- {m['id']} | ctx={m.get('context_length') or 0} | released={_released(m)} | {m.get('name', '')} | {m.get('description', '')}"
         for m in usable
     )
 
@@ -47,7 +57,11 @@ async def rank_models(
         "Rank these free LLM models for use as an auxiliary model in an AI agent system "
         "(tool calling, agentic subtasks, reasoning, coding). "
         "Prioritize: strong tool use, good reasoning, large context, reputable family. "
-        "Use context_length as tiebreaker between equals.\n\n"
+        "When two models are roughly comparable in capability, PREFER THE NEWER ONE "
+        "(later release date implies more recent training data and knowledge cutoff). "
+        "Only rank an older model above a newer one if the older model is clearly stronger "
+        "for agentic/tool use, not merely more familiar or more popular. "
+        "Use context_length as a secondary tiebreaker.\n\n"
         f"{model_list}\n\n"
         "Return ONLY a JSON array of model IDs best-first, no explanation:\n"
         '["model/id-1", "model/id-2", ...]'

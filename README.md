@@ -50,6 +50,7 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 | `OPENROUTER_API_KEY` | required | OpenRouter bearer token |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base |
 | `RANKER_MODEL` | `anthropic/claude-sonnet-4.6` | Model used to rank free models |
+| `PREFERRED_MODEL` | unset | If set and present in the free list, pinned as #1; ranker still runs for failover order |
 | `POLL_INTERVAL_SECONDS` | `86400` | Free model refresh interval (1 day) |
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `8787` | Bind port |
@@ -62,8 +63,9 @@ On startup and every `POLL_INTERVAL_SECONDS`, the proxy:
 
 1. Fetches all free models from OpenRouter
 2. Filters out non-tool-capable and non-chat models (embeddings, TTS, etc.)
-3. Asks `RANKER_MODEL` to rank them for agentic/coding use (tool calling, reasoning, large context)
+3. Asks `RANKER_MODEL` to rank them for agentic/coding use — tool calling, reasoning, large context, and (on near-ties) more recent release date
 4. Falls back to context-length sort if the LLM call fails
+5. If `PREFERRED_MODEL` is set and present in the usable list, it is pinned as #1; the ranker output supplies the failover order behind it
 
 The full ranked order is logged on each refresh.
 

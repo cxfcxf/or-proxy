@@ -30,6 +30,7 @@ async def fetch_free_models(client: httpx.AsyncClient) -> list[dict]:
                 "context_length": m.get("context_length"),
                 "supported_parameters": m.get("supported_parameters", []),
                 "description": (m.get("description") or "")[:200],
+                "created": m.get("created") or 0,
             })
 
     free.sort(key=lambda m: m["id"])
